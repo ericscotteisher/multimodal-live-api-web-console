@@ -50,7 +50,7 @@ function AltairComponent() {
       systemInstruction: {
         parts: [
           {
-            text: 'You are my helpful assistant. Please provide clear and concise responses. Any time I ask you for a graph call the "render_altair" function.',
+            text: 'You are an expert translator. You will repeat back the text that I speak without any mistakes or alterations.',
           },
         ],
       },

@@ -32,6 +32,8 @@ export type UseLiveAPIResults = {
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
   volume: number;
+  textResponses: string[];
+  userMessages: string[];
 };
 
 export function useLiveAPI({
@@ -43,12 +45,15 @@ export function useLiveAPI({
     [url, apiKey],
   );
   const audioStreamerRef = useRef<AudioStreamer | null>(null);
+  const currentResponseRef = useRef<string>("");
 
   const [connected, setConnected] = useState(false);
   const [config, setConfig] = useState<LiveConfig>({
     model: "models/gemini-2.0-flash-exp",
   });
   const [volume, setVolume] = useState(0);
+  const [textResponses, setTextResponses] = useState<string[]>([]);
+  const [userMessages, setUserMessages] = useState<string[]>([]);
 
   // register audio for streaming server -> speakers
   useEffect(() => {
@@ -76,21 +81,70 @@ export function useLiveAPI({
     const onAudio = (data: ArrayBuffer) =>
       audioStreamerRef.current?.addPCM16(new Uint8Array(data));
 
+    // Handle model responses
+    const onServerContent = (content: any) => {
+      if (content.modelTurn?.parts) {
+        const textParts = content.modelTurn.parts
+          .filter((p: any) => p.text)
+          .map((p: any) => p.text)
+          .join(" ");
+
+        if (textParts.trim()) {
+          console.log("📝 Model response:", textParts);
+          currentResponseRef.current += textParts;
+        }
+      }
+    };
+
+    // Handle turn completion
+    const onTurnComplete = () => {
+      console.log("Turn complete");
+      if (currentResponseRef.current.trim()) {
+        setTextResponses(prev => [...prev, currentResponseRef.current.trim()]);
+        currentResponseRef.current = ""; // Reset for next turn
+      }
+    };
+
+    // Handle user messages
+    const onClientContent = (message: any) => {
+      if (message.clientContent?.turns) {
+        const userText = message.clientContent.turns
+          .map((turn: any) => 
+            turn.parts
+              .filter((p: any) => p.text)
+              .map((p: any) => p.text)
+              .join(" ")
+          )
+          .join(" ");
+
+        if (userText.trim()) {
+          console.log("🗣️ User message:", userText);
+          setUserMessages(prev => [...prev, userText]);
+        }
+      }
+    };
+
     client
       .on("close", onClose)
       .on("interrupted", stopAudioStreamer)
-      .on("audio", onAudio);
+      .on("audio", onAudio)
+      .on("content", onServerContent)
+      .on("turncomplete", onTurnComplete)
+      .on("clientContent", onClientContent);
 
     return () => {
       client
         .off("close", onClose)
         .off("interrupted", stopAudioStreamer)
-        .off("audio", onAudio);
+        .off("audio", onAudio)
+        .off("content", onServerContent)
+        .off("turncomplete", onTurnComplete)
+        .off("clientContent", onClientContent);
     };
   }, [client]);
 
   const connect = useCallback(async () => {
-    console.log(config);
+    console.log("Connecting with config:", config);
     if (!config) {
       throw new Error("config has not been set");
     }
@@ -112,5 +166,7 @@ export function useLiveAPI({
     connect,
     disconnect,
     volume,
+    textResponses,
+    userMessages,
   };
 }

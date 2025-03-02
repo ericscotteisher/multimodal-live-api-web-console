@@ -18,6 +18,7 @@ import { useEffect, useRef, useState, memo } from "react";
 import vegaEmbed from "vega-embed";
 import { useLiveAPIContext } from "../../contexts/LiveAPIContext";
 import { ToolCall } from "../../multimodal-live-types";
+import { ChatBubbles } from "../chat/ChatBubbles";
 
 const declaration: FunctionDeclaration = {
   name: "render_altair",
@@ -40,29 +41,51 @@ function AltairComponent() {
   const { client, setConfig } = useLiveAPIContext();
 
   useEffect(() => {
+    // Configure for text-only conversation
     setConfig({
       model: "models/gemini-2.0-flash-exp",
       generationConfig: {
-        responseModalities: "audio",
-        speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } },
-        },
+        responseModalities: "text", // Set to text-only mode
       },
       systemInstruction: {
         parts: [
           {
-            text: 'You are my helpful assistant. Any time I ask you for a graph call the "render_altair" function I have provided you. Dont ask for additional information just make your best judgement.',
+            text: 'You are my helpful assistant. Please provide clear and concise responses. Any time I ask you for a graph call the "render_altair" function.',
           },
         ],
       },
       tools: [
-        // there is a free-tier quota for search
         { googleSearch: {} },
         { functionDeclarations: [declaration] },
       ],
     });
   }, [setConfig]);
 
+  // Handle text responses from the model
+  useEffect(() => {
+    const onServerContent = (content: any) => {
+      if (content.modelTurn?.parts) {
+        const textParts = content.modelTurn.parts.filter((p: any) => p.text);
+        console.log("📝 Received text response:", textParts);
+      }
+    };
+
+    const onTurnComplete = () => {
+      console.log("Turn complete");
+    };
+
+    client
+      .on("content", onServerContent)
+      .on("turncomplete", onTurnComplete);
+
+    return () => {
+      client
+        .off("content", onServerContent)
+        .off("turncomplete", onTurnComplete);
+    };
+  }, [client]);
+
+  // Handle tool calls separately
   useEffect(() => {
     const onToolCall = (toolCall: ToolCall) => {
       console.log(`got toolcall`, toolCall);
@@ -73,8 +96,6 @@ function AltairComponent() {
         const str = (fc.args as any).json_graph;
         setJSONString(str);
       }
-      // send data for the response of your tool call
-      // in this case Im just saying it was successful
       if (toolCall.functionCalls.length) {
         setTimeout(
           () =>
@@ -88,6 +109,7 @@ function AltairComponent() {
         );
       }
     };
+
     client.on("toolcall", onToolCall);
     return () => {
       client.off("toolcall", onToolCall);
@@ -101,7 +123,13 @@ function AltairComponent() {
       vegaEmbed(embedRef.current, JSON.parse(jsonString));
     }
   }, [embedRef, jsonString]);
-  return <div className="vega-embed" ref={embedRef} />;
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <ChatBubbles />
+      <div className="vega-embed" ref={embedRef} />
+    </div>
+  );
 }
 
 export const Altair = memo(AltairComponent);
